@@ -1,0 +1,79 @@
+name: Release and Pack NuGet
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: Setup .NET
+      uses: actions/setup-dotnet@v4
+      with:
+        dotnet-version: '9.0.x'
+    
+    - name: Restore dependencies
+      run: dotnet restore src/Hosting/Android.InProcess/src/Microsoft.AspNetCore.Hosting.Android.InProcess.csproj
+    
+    - name: Build Release
+      run: dotnet build src/Hosting/Android.InProcess/src/Microsoft.AspNetCore.Hosting.Android.InProcess.csproj --no-restore --configuration Release
+    
+    - name: Run Tests
+      run: dotnet test src/Hosting/Android.InProcess/test/Microsoft.AspNetCore.Hosting.Android.InProcess.Tests.csproj --no-build --verbosity normal --configuration Release
+    
+    - name: Pack NuGet Package
+      run: dotnet pack src/Hosting/Android.InProcess/src/Microsoft.AspNetCore.Hosting.Android.InProcess.csproj --configuration Release --output ./nupkgs --no-build
+    
+    - name: Create Release
+      id: create_release
+      uses: actions/create-release@v1
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      with:
+        tag_name: ${{ github.ref }}
+        release_name: Release ${{ github.ref }}
+        draft: false
+        prerelease: false
+        body: |
+          ## ASP.NET Core Android In-Process Hosting Release
+          
+          ### Changes
+          - In-process server implementation for Android
+          - WebView adapter for local request interception
+          - HttpClient adapter for in-app requests
+          - Android lifecycle integration
+          - Diagnostics and metrics support
+          
+          ### Installation
+          ```bash
+          dotnet add package Microsoft.AspNetCore.Hosting.Android.InProcess
+          ```
+          
+          ### Quick Start
+          See README.md for usage examples.
+    
+    - name: Upload NuGet Package as Release Asset
+      uses: actions/upload-release-asset@v1
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      with:
+        upload_url: ${{ steps.create_release.outputs.upload_url }}
+        asset_path: ./nupkgs/Microsoft.AspNetCore.Hosting.Android.InProcess.*.nupkg
+        asset_name: Microsoft.AspNetCore.Hosting.Android.InProcess.${{ github.ref_name }}.nupkg
+        asset_content_type: application/octet-stream
+    
+    - name: Upload NuGet Symbols Package as Release Asset
+      uses: actions/upload-release-asset@v1
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      with:
+        upload_url: ${{ steps.create_release.outputs.upload_url }}
+        asset_path: ./nupkgs/Microsoft.AspNetCore.Hosting.Android.InProcess.*.snupkg
+        asset_name: Microsoft.AspNetCore.Hosting.Android.InProcess.${{ github.ref_name }}.snupkg
+        asset_content_type: application/octet-stream
+      if: hashFiles('./nupkgs/*.snupkg') != ''
