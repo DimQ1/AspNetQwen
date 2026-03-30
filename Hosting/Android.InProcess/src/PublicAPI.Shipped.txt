@@ -1,0 +1,40 @@
+#nullable enable
+
+# Public API for Microsoft.AspNetCore.Hosting.Android.InProcess
+
+# AndroidInProcessHostingOptions
+Microsoft.AspNetCore.Hosting.Android.InProcess.AndroidInProcessHostingOptions
+Microsoft.AspNetCore.Hosting.Android.InProcess.AndroidInProcessHostingOptions.BaseAddress.get -> System.Uri!
+Microsoft.AspNetCore.Hosting.Android.InProcess.AndroidInProcessHostingOptions.BaseAddress.set -> void
+Microsoft.AspNetCore.Hosting.Android.InProcess.AndroidInProcessHostingOptions.EnableWebViewAdapter.get -> bool
+Microsoft.AspNetCore.Hosting.Android.InProcess.AndroidInProcessHostingOptions.EnableWebViewAdapter.set -> void
+Microsoft.AspNetCore.Hosting.Android.InProcess.AndroidInProcessHostingOptions.EnableHttpClientAdapter.get -> bool
+Microsoft.AspNetCore.Hosting.Android.InProcess.AndroidInProcessHostingOptions.EnableHttpClientAdapter.set -> void
+Microsoft.AspNetCore.Hosting.Android.InProcess.AndroidInProcessHostingOptions.ShutdownTimeout.get -> System.TimeSpan
+Microsoft.AspNetCore.Hosting.Android.InProcess.AndroidInProcessHostingOptions.ShutdownTimeout.set -> void
+Microsoft.AspNetCore.Hosting.Android.InProcess.AndroidInProcessHostingOptions.BufferRequestBody.get -> bool
+Microsoft.AspNetCore.Hosting.Android.InProcess.AndroidInProcessHostingOptions.BufferRequestBody.set -> void
+Microsoft.AspNetCore.Hosting.Android.InProcess.AndroidInProcessHostingOptions.BufferResponseBody.get -> bool
+Microsoft.AspNetCore.Hosting.Android.InProcess.AndroidInProcessHostingOptions.BufferResponseBody.set -> void
+Microsoft.AspNetCore.Hosting.Android.InProcess.AndroidInProcessHostingOptions.MaxRequestBodySize.get -> long
+Microsoft.AspNetCore.Hosting.Android.InProcess.AndroidInProcessHostingOptions.MaxRequestBodySize.set -> void
+Microsoft.AspNetCore.Hosting.Android.InProcess.AndroidInProcessHostingOptions.MaxResponseBodySize.get -> long
+Microsoft.AspNetCore.Hosting.Android.InProcess.AndroidInProcessHostingOptions.MaxResponseBodySize.set -> void
+
+# AndroidInProcessHostBuilderExtensions
+static Microsoft.AspNetCore.Hosting.Android.InProcess.AndroidInProcessHostBuilderExtensions
+static Microsoft.AspNetCore.Hosting.Android.InProcess.AndroidInProcessHostBuilderExtensions.AddAndroidInProcessHosting(this Microsoft.Extensions.Hosting.IHostApplicationBuilder! builder) -> Microsoft.Extensions.Hosting.IHostApplicationBuilder!
+static Microsoft.AspNetCore.Hosting.Android.InProcess.AndroidInProcessHostBuilderExtensions.AddAndroidInProcessHosting(this Microsoft.Extensions.Hosting.IHostApplicationBuilder! builder, System.Action<Microsoft.AspNetCore.Hosting.Android.InProcess.AndroidInProcessHostingOptions!>! configure) -> Microsoft.Extensions.Hosting.IHostApplicationBuilder!
+
+# AndroidInProcessWebHostBuilderExtensions
+static Microsoft.AspNetCore.Hosting.Android.InProcess.AndroidInProcessWebHostBuilderExtensions
+static Microsoft.AspNetCore.Hosting.Android.InProcess.AndroidInProcessWebHostBuilderExtensions.UseAndroidInProcessHosting(this Microsoft.AspNetCore.Hosting.IWebHostBuilder! builder) -> Microsoft.AspNetCore.Hosting.IWebHostBuilder!
+static Microsoft.AspNetCore.Hosting.Android.InProcess.AndroidInProcessWebHostBuilderExtensions.UseAndroidInProcessHosting(this Microsoft.AspNetCore.Hosting.IWebHostBuilder! builder, System.Action<Microsoft.AspNetCore.Hosting.Android.InProcess.AndroidInProcessHostingOptions!>! configure) -> Microsoft.AspNetCore.Hosting.IWebHostBuilder!
+
+# AndroidWebViewRequestAdapter
+Microsoft.AspNetCore.Hosting.Android.InProcess.AndroidWebViewRequestAdapter
+Microsoft.AspNetCore.Hosting.Android.InProcess.AndroidWebViewRequestAdapter.AndroidWebViewRequestAdapter(Microsoft.AspNetCore.Hosting.Android.InProcess.AndroidInProcessServer! server, System.Uri! baseAddress, Microsoft.Extensions.Logging.ILogger<Microsoft.AspNetCore.Hosting.Android.InProcess.AndroidWebViewRequestAdapter!>? logger) -> void
+
+# AndroidHttpClientMessageHandler
+Microsoft.AspNetCore.Hosting.Android.InProcess.AndroidHttpClientMessageHandler
+Microsoft.AspNetCore.Hosting.Android.InProcess.AndroidHttpClientMessageHandler.AndroidHttpClientMessageHandler(Microsoft.AspNetCore.Hosting.Android.InProcess.AndroidInProcessServer! server, System.Uri! baseAddress, System.Net.Http.HttpMessageHandler? innerHandler, Microsoft.Extensions.Logging.ILogger<Microsoft.AspNetCore.Hosting.Android.InProcess.AndroidHttpClientMessageHandler!>? logger) -> void
