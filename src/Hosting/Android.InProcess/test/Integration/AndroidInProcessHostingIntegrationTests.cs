@@ -58,6 +58,8 @@ public class AndroidInProcessHostingIntegrationTests
     {
         // Arrange
         var builder = Host.CreateApplicationBuilder();
+        var options = new AndroidInProcessHostingOptions();
+        builder.Services.AddSingleton(options);
         builder.AddAndroidInProcessHosting();
         builder.ConfigureWebHost(webHostBuilder =>
         {
@@ -100,6 +102,8 @@ public class AndroidInProcessHostingIntegrationTests
     {
         // Arrange
         var builder = Host.CreateApplicationBuilder();
+        var options = new AndroidInProcessHostingOptions();
+        builder.Services.AddSingleton(options);
         builder.AddAndroidInProcessHosting();
         builder.ConfigureWebHost(webHostBuilder =>
         {
@@ -130,10 +134,57 @@ public class AndroidInProcessHostingIntegrationTests
     }
 
     [Fact]
+    public async Task Server_Rejects_Oversized_Request_Body()
+    {
+        // Arrange
+        var builder = Host.CreateApplicationBuilder();
+        var options = new AndroidInProcessHostingOptions
+        {
+            MaxRequestBodySize = 100 // 100 bytes limit for testing
+        };
+        builder.Services.AddSingleton(options);
+        builder.AddAndroidInProcessHosting();
+        builder.ConfigureWebHost(webHostBuilder =>
+        {
+            webHostBuilder.UseAndroidInProcessHosting();
+            webHostBuilder.Configure(app =>
+            {
+                app.Run(async context =>
+                {
+                    context.Response.StatusCode = 200;
+                    await context.Response.WriteAsync("OK");
+                });
+            });
+        });
+
+        var app = builder.Build();
+        await app.StartAsync();
+
+        var server = app.Services.GetRequiredService<AndroidInProcessServer>();
+        var largeBody = new byte[200]; // 200 bytes - exceeds limit
+        var request = new AndroidInProcessRequest
+        {
+            Method = "POST",
+            Path = "/api/large",
+            Body = largeBody,
+        };
+
+        // Act
+        var response = await server.DispatchRequestAsync(request, CancellationToken.None);
+
+        // Assert
+        response.StatusCode.Should().Be(413); // Payload Too Large
+        
+        await app.StopAsync();
+    }
+
+    [Fact]
     public async Task Server_Can_Process_Post_With_Body()
     {
         // Arrange
         var builder = Host.CreateApplicationBuilder();
+        var options = new AndroidInProcessHostingOptions();
+        builder.Services.AddSingleton(options);
         builder.AddAndroidInProcessHosting();
         builder.ConfigureWebHost(webHostBuilder =>
         {

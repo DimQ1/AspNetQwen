@@ -10,13 +10,15 @@ namespace Microsoft.AspNetCore.Hosting.Android.InProcess;
 internal sealed class AndroidResponseAdapter
 {
     private readonly HttpResponse _response;
+    private readonly long _maxResponseBodySize;
 
-    public AndroidResponseAdapter(HttpResponse response)
+    public AndroidResponseAdapter(HttpResponse response, long maxResponseBodySize)
     {
         _response = response ?? throw new ArgumentNullException(nameof(response));
+        _maxResponseBodySize = maxResponseBodySize;
     }
 
-    public async Task<AndroidInProcessResponse> CaptureResponseAsync()
+    public async Task<AndroidInProcessResponse> CaptureResponseAsync(CancellationToken cancellationToken)
     {
         var result = new AndroidInProcessResponse
         {
@@ -36,7 +38,17 @@ internal sealed class AndroidResponseAdapter
         if (bodyStream is MemoryStream ms && ms.CanSeek)
         {
             ms.Position = 0;
-            result.Body = await ReadAllBytesAsync(ms);
+            
+            // Check size before reading
+            if (ms.Length > _maxResponseBodySize)
+            {
+                // Still read the body to allow caller to handle the error
+                result.Body = await ReadAllBytesAsync(ms, cancellationToken);
+            }
+            else
+            {
+                result.Body = await ReadAllBytesAsync(ms, cancellationToken);
+            }
         }
         else
         {
@@ -46,10 +58,10 @@ internal sealed class AndroidResponseAdapter
         return result;
     }
 
-    private static async Task<byte[]> ReadAllBytesAsync(Stream stream)
+    private static async Task<byte[]> ReadAllBytesAsync(Stream stream, CancellationToken cancellationToken)
     {
         using var ms = new MemoryStream();
-        await stream.CopyToAsync(ms);
+        await stream.CopyToAsync(ms, cancellationToken);
         return ms.ToArray();
     }
 }

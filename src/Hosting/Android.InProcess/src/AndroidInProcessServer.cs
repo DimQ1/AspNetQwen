@@ -3,6 +3,7 @@
 using Microsoft.AspNetCore.Hosting.Server;
 using Microsoft.AspNetCore.Http.Features;
 using Microsoft.Extensions.Logging;
+using System.Diagnostics;
 
 namespace Microsoft.AspNetCore.Hosting.Android.InProcess;
 
@@ -13,13 +14,17 @@ internal sealed class AndroidInProcessServer : IServer
 {
     private readonly IFeatureCollection _features;
     private readonly ILogger<AndroidInProcessServer> _logger;
+    private readonly AndroidInProcessHostingOptions _options;
     private RequestDelegate? _requestDelegate;
     private bool _isStarted;
     private bool _disposed;
 
-    public AndroidInProcessServer(ILogger<AndroidInProcessServer> logger)
+    public AndroidInProcessServer(
+        ILogger<AndroidInProcessServer> logger,
+        AndroidInProcessHostingOptions options)
     {
         _logger = logger ?? throw new ArgumentNullException(nameof(logger));
+        _options = options ?? throw new ArgumentNullException(nameof(options));
         _features = new FeatureCollection();
         
         Log.ServerStarting(_logger);
@@ -81,9 +86,21 @@ internal sealed class AndroidInProcessServer : IServer
             throw new InvalidOperationException("Server is not started. Call StartAsync first.");
         }
 
+        var stopwatch = Stopwatch.StartNew();
+        AndroidInProcessDiagnostics.RecordRequestStart();
+
+        // Validate request body size
+        if (request.Body != null && request.Body.Length > _options.MaxRequestBodySize)
+        {
+            AndroidInProcessDiagnostics.RecordRequestFailure(stopwatch.ElapsedMilliseconds);
+            Log.RequestBodyTooLarge(_logger, request.Body.Length, _options.MaxRequestBodySize, request.Path);
+            return CreateErrorResponse(413, "Payload Too Large", $"Request body size ({request.Body.Length} bytes) exceeds the maximum allowed size ({_options.MaxRequestBodySize} bytes).");
+        }
+
         var httpContext = new DefaultHttpContext();
         var featureFactory = new AndroidRequestFeatureCollectionFactory(request);
         httpContext.Features = featureFactory.CreateFeatureCollection();
+        httpContext.RequestServices = null; // Will be set by hosting infrastructure
 
         try
         {
@@ -91,28 +108,44 @@ internal sealed class AndroidInProcessServer : IServer
             await _requestDelegate(httpContext);
             Log.RequestFinished(_logger, httpContext.Response.StatusCode, request.Path);
             
-            var responseAdapter = new AndroidResponseAdapter(httpContext.Response);
-            return await responseAdapter.CaptureResponseAsync();
+            var responseAdapter = new AndroidResponseAdapter(httpContext.Response, _options.MaxResponseBodySize);
+            var response = await responseAdapter.CaptureResponseAsync(cancellationToken);
+
+            // Validate response body size
+            if (response.Body.Length > _options.MaxResponseBodySize)
+            {
+                AndroidInProcessDiagnostics.RecordRequestFailure(stopwatch.ElapsedMilliseconds);
+                Log.ResponseBodyTooLarge(_logger, response.Body.Length, _options.MaxResponseBodySize, request.Path);
+                return CreateErrorResponse(500, "Internal Server Error", $"Response body size ({response.Body.Length} bytes) exceeds the maximum allowed size ({_options.MaxResponseBodySize} bytes).");
+            }
+
+            AndroidInProcessDiagnostics.RecordRequestSuccess(stopwatch.ElapsedMilliseconds);
+            return response;
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
+            AndroidInProcessDiagnostics.RecordRequestFailure(stopwatch.ElapsedMilliseconds);
             Log.RequestCancelled(_logger, request.Path);
             throw;
         }
         catch (Exception ex)
         {
+            AndroidInProcessDiagnostics.RecordRequestFailure(stopwatch.ElapsedMilliseconds);
             Log.RequestFailed(_logger, ex.GetType().Name, ex.Message, request.Path);
-            return CreateErrorResponse(ex);
+            return CreateErrorResponse(500, "Internal Server Error", $"{ex.GetType().Name}: {ex.Message}");
         }
     }
 
-    private static AndroidInProcessResponse CreateErrorResponse(Exception exception)
+    private static AndroidInProcessResponse CreateErrorResponse(int statusCode, string reasonPhrase, string message)
     {
         return new AndroidInProcessResponse
         {
-            StatusCode = 500,
-            Headers = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase),
-            Body = $"Internal Server Error: {exception.Message}"u8.ToArray()
+            StatusCode = statusCode,
+            Headers = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+            {
+                ["Content-Type"] = "text/plain"
+            },
+            Body = System.Text.Encoding.UTF8.GetBytes($"{reasonPhrase}: {message}")
         };
     }
 
@@ -163,6 +196,16 @@ internal sealed class AndroidInProcessServer : IServer
             new EventId(13, "RequestCancelled"),
             "Request cancelled: {Path}");
 
+        private static readonly Action<ILogger, long, long, string?, Exception?> _requestBodyTooLarge = LoggerMessage.Define<long, long, string?>(
+            LogLevel.Warning,
+            new EventId(14, "RequestBodyTooLarge"),
+            "Request body too large: {ActualSize} bytes (max: {MaxSize}) for {Path}");
+
+        private static readonly Action<ILogger, long, long, string?, Exception?> _responseBodyTooLarge = LoggerMessage.Define<long, long, string?>(
+            LogLevel.Error,
+            new EventId(15, "ResponseBodyTooLarge"),
+            "Response body too large: {ActualSize} bytes (max: {MaxSize}) for {Path}");
+
         public static void ServerStarting(ILogger logger) => _serverStarting(logger, null);
         public static void ServerStarted(ILogger logger) => _serverStarted(logger, null);
         public static void ServerStopping(ILogger logger) => _serverStopping(logger, null);
@@ -172,5 +215,7 @@ internal sealed class AndroidInProcessServer : IServer
         public static void RequestFinished(ILogger logger, int statusCode, string? path) => _requestFinished(logger, statusCode, path, null);
         public static void RequestFailed(ILogger logger, string exceptionType, string message, string? path) => _requestFailed(logger, exceptionType, message, path, null);
         public static void RequestCancelled(ILogger logger, string? path) => _requestCancelled(logger, path, null);
+        public static void RequestBodyTooLarge(ILogger logger, long actualSize, long maxSize, string? path) => _requestBodyTooLarge(logger, actualSize, maxSize, path, null);
+        public static void ResponseBodyTooLarge(ILogger logger, long actualSize, long maxSize, string? path) => _responseBodyTooLarge(logger, actualSize, maxSize, path, null);
     }
 }
