@@ -1,5 +1,6 @@
 #nullable enable
 
+using System.Runtime.Versioning;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 

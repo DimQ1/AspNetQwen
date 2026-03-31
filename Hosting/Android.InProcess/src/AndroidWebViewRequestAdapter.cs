@@ -1,5 +1,7 @@
 #nullable enable
 
+using System.Diagnostics.CodeAnalysis;
+using System.Runtime.Versioning;
 using Android.Webkit;
 using Microsoft.Extensions.Logging;
 
@@ -25,7 +27,7 @@ public sealed class AndroidWebViewRequestAdapter : WebViewClient
         _logger = logger;
     }
 
-    public override WebResourceResponse? ShouldInterceptRequest(WebView? view, WebResourceRequest? request)
+    public override WebResourceResponse? ShouldInterceptRequest(WebView? view, IWebResourceRequest? request)
     {
         if (view == null || request == null || request.Url == null)
         {
@@ -33,7 +35,7 @@ public sealed class AndroidWebViewRequestAdapter : WebViewClient
         }
 
         var uri = request.Url;
-        
+
         // Only intercept requests targeting our configured base address
         if (!uri.ToString().StartsWith(_baseAddress.ToString(), StringComparison.OrdinalIgnoreCase))
         {
@@ -52,32 +54,26 @@ public sealed class AndroidWebViewRequestAdapter : WebViewClient
     }
 
     [UnconditionalSuppressMessage("Trimming", "IL2026", Justification = "WebView adapter requires reflection for MIME type mapping")]
-    private async Task<WebResourceResponse?> InterceptRequestAsync(WebResourceRequest request)
+    private async Task<WebResourceResponse?> InterceptRequestAsync(IWebResourceRequest request)
     {
         var uri = request.Url!;
         var method = request.Method ?? "GET";
+        var path = uri.Path ?? "/";
+        var queryString = string.IsNullOrEmpty(uri.EncodedQuery) ? string.Empty : $"?{uri.EncodedQuery}";
         var headers = request.RequestHeaders;
-        
+
         var inProcessRequest = new AndroidInProcessRequest
         {
             Method = method,
-            Path = uri.PathAndQuery,
-            QueryString = uri.Query ?? string.Empty,
+            Path = path,
+            QueryString = queryString,
             Headers = headers != null ? ConvertHeaders(headers) : new Dictionary<string, string>(),
             CancellationToken = CancellationToken.None,
         };
 
-        // Read request body for POST/PUT/PATCH
-        if (method is "POST" or "PUT" or "PATCH" && request.InputStream != null)
-        {
-            using var ms = new MemoryStream();
-            await request.InputStream.CopyToAsync(ms);
-            inProcessRequest.Body = ms.ToArray();
-        }
-
         var response = await _server.DispatchRequestAsync(inProcessRequest, CancellationToken.None);
 
-        var mimeType = GetMimeType(uri.Path);
+        var mimeType = GetMimeType(path);
         var encoding = "utf-8";
         var reasonPhrase = GetReasonPhrase(response.StatusCode);
 
@@ -89,12 +85,7 @@ public sealed class AndroidWebViewRequestAdapter : WebViewClient
 
         var bodyStream = response.Body.Length > 0 ? new MemoryStream(response.Body) : Stream.Null;
 
-        return new WebResourceResponse(mimeType, encoding, bodyStream)
-        {
-            StatusCode = response.StatusCode,
-            ReasonPhrase = reasonPhrase,
-            ResponseHeaders = responseHeaders,
-        };
+        return new WebResourceResponse(mimeType, encoding, response.StatusCode, reasonPhrase, responseHeaders, bodyStream);
     }
 
     private static Dictionary<string, string> ConvertHeaders(IDictionary<string, string>? androidHeaders)
@@ -159,10 +150,12 @@ public sealed class AndroidWebViewRequestAdapter : WebViewClient
     private static WebResourceResponse CreateErrorResponse(string message)
     {
         var bodyBytes = System.Text.Encoding.UTF8.GetBytes(message);
-        return new WebResourceResponse("text/plain", "utf-8", new MemoryStream(bodyBytes))
-        {
-            StatusCode = 500,
-            ReasonPhrase = "Internal Server Error",
-        };
+        return new WebResourceResponse(
+            "text/plain",
+            "utf-8",
+            500,
+            "Internal Server Error",
+            new Dictionary<string, string>(),
+            new MemoryStream(bodyBytes));
     }
 }

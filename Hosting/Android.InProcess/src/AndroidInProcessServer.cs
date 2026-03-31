@@ -1,6 +1,8 @@
 #nullable enable
 
+using System.Text;
 using Microsoft.AspNetCore.Hosting.Server;
+using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Http.Features;
 using Microsoft.Extensions.Logging;
 
@@ -9,7 +11,7 @@ namespace Microsoft.AspNetCore.Hosting.Android.InProcess;
 /// <summary>
 /// In-process server implementation for Android hosting.
 /// </summary>
-internal sealed class AndroidInProcessServer : IServer
+public sealed class AndroidInProcessServer : IServer
 {
     private readonly IFeatureCollection _features;
     private readonly ILogger<AndroidInProcessServer> _logger;
@@ -39,9 +41,28 @@ internal sealed class AndroidInProcessServer : IServer
             throw new InvalidOperationException("Server has already been started.");
         }
 
-        _requestDelegate = context => application.ProcessRequestAsync((TContext)context);
+        _requestDelegate = async context =>
+        {
+            var appContext = application.CreateContext(context.Features);
+            Exception? dispatchException = null;
+
+            try
+            {
+                await application.ProcessRequestAsync(appContext);
+            }
+            catch (Exception ex)
+            {
+                dispatchException = ex;
+                throw;
+            }
+            finally
+            {
+                application.DisposeContext(appContext, dispatchException);
+            }
+        };
+
         _isStarted = true;
-        
+
         Log.ServerStarted(_logger);
         return Task.CompletedTask;
     }
@@ -81,16 +102,15 @@ internal sealed class AndroidInProcessServer : IServer
             throw new InvalidOperationException("Server is not started. Call StartAsync first.");
         }
 
-        var httpContext = new DefaultHttpContext();
         var featureFactory = new AndroidRequestFeatureCollectionFactory(request);
-        httpContext.Features = featureFactory.CreateFeatureCollection();
+        var httpContext = new DefaultHttpContext(featureFactory.CreateFeatureCollection());
 
         try
         {
             Log.RequestStarted(_logger, request.Method, request.Path);
             await _requestDelegate(httpContext);
             Log.RequestFinished(_logger, httpContext.Response.StatusCode, request.Path);
-            
+
             var responseAdapter = new AndroidResponseAdapter(httpContext.Response);
             return await responseAdapter.CaptureResponseAsync();
         }
@@ -112,7 +132,7 @@ internal sealed class AndroidInProcessServer : IServer
         {
             StatusCode = 500,
             Headers = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase),
-            Body = $"Internal Server Error: {exception.Message}"u8.ToArray()
+            Body = Encoding.UTF8.GetBytes($"Internal Server Error: {exception.Message}")
         };
     }
 

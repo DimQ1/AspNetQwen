@@ -1,6 +1,7 @@
 #nullable enable
 
 using System.Net.Http;
+using System.Runtime.Versioning;
 using Microsoft.Extensions.Logging;
 
 namespace Microsoft.AspNetCore.Hosting.Android.InProcess;
@@ -14,7 +15,7 @@ public sealed class AndroidHttpClientMessageHandler : HttpMessageHandler
 {
     private readonly AndroidInProcessServer _server;
     private readonly Uri _baseAddress;
-    private readonly HttpMessageHandler? _innerHandler;
+    private readonly HttpMessageInvoker? _innerHandlerInvoker;
     private readonly ILogger<AndroidHttpClientMessageHandler>? _logger;
 
     public AndroidHttpClientMessageHandler(
@@ -25,7 +26,7 @@ public sealed class AndroidHttpClientMessageHandler : HttpMessageHandler
     {
         _server = server ?? throw new ArgumentNullException(nameof(server));
         _baseAddress = baseAddress ?? throw new ArgumentNullException(nameof(baseAddress));
-        _innerHandler = innerHandler;
+        _innerHandlerInvoker = innerHandler is null ? null : new HttpMessageInvoker(innerHandler);
         _logger = logger;
     }
 
@@ -37,15 +38,15 @@ public sealed class AndroidHttpClientMessageHandler : HttpMessageHandler
         }
 
         var requestUri = request.RequestUri;
-        
+
         // Only intercept requests targeting our configured base address
         if (requestUri == null || !requestUri.ToString().StartsWith(_baseAddress.ToString(), StringComparison.OrdinalIgnoreCase))
         {
-            if (_innerHandler != null)
+            if (_innerHandlerInvoker != null)
             {
-                return await _innerHandler.SendAsync(request, cancellationToken);
+                return await _innerHandlerInvoker.SendAsync(request, cancellationToken);
             }
-            
+
             throw new InvalidOperationException($"Request URI {requestUri} does not match the configured base address {_baseAddress}. Use the configured base address for in-process requests or provide an inner handler for external requests.");
         }
 
@@ -138,7 +139,7 @@ public sealed class AndroidHttpClientMessageHandler : HttpMessageHandler
     {
         if (disposing)
         {
-            _innerHandler?.Dispose();
+            _innerHandlerInvoker?.Dispose();
         }
         base.Dispose(disposing);
     }

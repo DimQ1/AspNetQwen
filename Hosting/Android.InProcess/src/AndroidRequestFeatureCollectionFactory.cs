@@ -1,7 +1,9 @@
 #nullable enable
 
+using System.IO.Pipelines;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Http.Features;
+using Microsoft.Extensions.Primitives;
 
 namespace Microsoft.AspNetCore.Hosting.Android.InProcess;
 
@@ -20,76 +22,101 @@ internal sealed class AndroidRequestFeatureCollectionFactory
     public IFeatureCollection CreateFeatureCollection()
     {
         var features = new FeatureCollection();
+        var requestBody = _request.Body is { Length: > 0 } ? new MemoryStream(_request.Body) : Stream.Null;
+        var responseBody = new MemoryStream();
 
         var httpRequestFeature = new HttpRequestFeature
         {
             Method = _request.Method,
+            Protocol = "HTTP/1.1",
             Scheme = "https",
             PathBase = string.Empty,
             Path = _request.Path,
             QueryString = _request.QueryString,
-            Headers = new HeaderDictionary(_request.Headers),
+            RawTarget = string.Concat(_request.Path, _request.QueryString),
+            Headers = CreateHeaders(_request.Headers),
+            Body = requestBody,
         };
-
-        if (_request.Body != null && _request.Body.Length > 0)
-        {
-            httpRequestFeature.Body = new MemoryStream(_request.Body);
-        }
-        else
-        {
-            httpRequestFeature.Body = Stream.Null;
-        }
-
-        features.Set<IHttpRequestFeature>(httpRequestFeature);
 
         var httpResponseFeature = new HttpResponseFeature
         {
             StatusCode = 200,
             Headers = new HeaderDictionary(),
-            Body = new MemoryStream(),
+            Body = responseBody,
         };
 
+        features.Set<IHttpRequestFeature>(httpRequestFeature);
         features.Set<IHttpResponseFeature>(httpResponseFeature);
-
-        var responseBodyFeature = new HttpResponseBodyFeature
-        {
-            Body = httpResponseFeature.Body,
-        };
-
-        features.Set<IHttpResponseBodyFeature>(responseBodyFeature);
+        features.Set<IHttpResponseBodyFeature>(new HttpResponseBodyFeature(responseBody));
 
         return features;
     }
 
-    private sealed class HttpRequestFeature : IHttpRequestFeature
+    private static HeaderDictionary CreateHeaders(IDictionary<string, string> headers)
     {
-        public string Method { get; set; } = "GET";
-        public string Scheme { get; set; } = "https";
-        public bool IsHttps { get; set; }
-        public IDictionary<string, StringValues> Query { get; set; } = new Dictionary<string, StringValues>();
-        public string PathBase { get; set; } = string.Empty;
-        public string Path { get; set; } = "/";
-        public string QueryString { get; set; } = string.Empty;
-        public IHeaderDictionary Headers { get; set; } = new HeaderDictionary();
-        public Stream Body { get; set; } = Stream.Null;
-    }
+        var result = new HeaderDictionary();
 
-    private sealed class HttpResponseFeature : IHttpResponseFeature
-    {
-        public int StatusCode { get; set; } = 200;
-        public string? ReasonPhrase { get; set; }
-        public IHeaderDictionary Headers { get; set; } = new HeaderDictionary();
-        public Stream Body { get; set; } = Stream.Null;
+        foreach (var header in headers)
+        {
+            result[header.Key] = new StringValues(header.Value);
+        }
+
+        return result;
     }
 
     private sealed class HttpResponseBodyFeature : IHttpResponseBodyFeature
     {
-        public Stream Body { get; set; } = Stream.Null;
+        private readonly PipeWriter _writer;
 
-        public Task CompleteAsync() => Task.CompletedTask;
+        public HttpResponseBodyFeature(Stream stream)
+        {
+            Stream = stream ?? throw new ArgumentNullException(nameof(stream));
+            _writer = PipeWriter.Create(stream, new StreamPipeWriterOptions(leaveOpen: true));
+        }
+
+        public Stream Stream { get; }
+
+        public PipeWriter Writer => _writer;
+
+        public void DisableBuffering()
+        {
+        }
 
         public Task StartAsync(CancellationToken cancellationToken = default) => Task.CompletedTask;
 
-        public void DisableBuffering() { }
+        public async Task SendFileAsync(string path, long offset, long? count, CancellationToken cancellationToken = default)
+        {
+            ArgumentException.ThrowIfNullOrWhiteSpace(path);
+
+            await using var fileStream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read);
+
+            if (offset > 0)
+            {
+                fileStream.Seek(offset, SeekOrigin.Begin);
+            }
+
+            if (count is null)
+            {
+                await fileStream.CopyToAsync(Stream, cancellationToken);
+                return;
+            }
+
+            var remaining = count.Value;
+            var buffer = new byte[81920];
+
+            while (remaining > 0)
+            {
+                var bytesRead = await fileStream.ReadAsync(buffer.AsMemory(0, (int)Math.Min(buffer.Length, remaining)), cancellationToken);
+                if (bytesRead == 0)
+                {
+                    break;
+                }
+
+                await Stream.WriteAsync(buffer.AsMemory(0, bytesRead), cancellationToken);
+                remaining -= bytesRead;
+            }
+        }
+
+        public Task CompleteAsync() => _writer.CompleteAsync().AsTask();
     }
 }
